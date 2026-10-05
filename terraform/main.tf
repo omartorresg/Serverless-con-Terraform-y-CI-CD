@@ -25,15 +25,14 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# 4. Creación de la Función Lambda
 resource "aws_lambda_function" "api_backend" {
   filename         = "../backend.zip"
-  function_name    = "mobile_backend_api"
+  function_name    = "mobile_backend_api_${random_id.role_suffix.hex}"
   role             = aws_iam_role.lambda_exec_role.arn
   handler          = "index.handler"
   runtime          = "nodejs20.x"
-  
-  # Variables de entorno inyectadas desde GitHub Secrets
+  source_code_hash = filebase64sha256("../backend.zip")
+
   environment {
     variables = {
       DATABASE_URL = var.database_url
