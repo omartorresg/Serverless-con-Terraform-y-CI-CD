@@ -1,0 +1,13 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!terraform.tfvars.example
+.terraform.lock.hcl
+
+# Zip comprimido del backend
+backend.zip
+
+# Node modules local
+node_modules/
