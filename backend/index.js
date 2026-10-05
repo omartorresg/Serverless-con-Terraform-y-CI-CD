@@ -2,7 +2,6 @@ const { Client } = require('pg');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
-// Conexión fuera del handler para reutilización en Lambda (evita error 500 por límites de conexión)
 let client;
 
 const getDbClient = async () => {
@@ -17,15 +16,17 @@ const getDbClient = async () => {
 };
 
 exports.handler = async (event) => {
-    const path = event.rawPath || event.path || '';
-    const httpMethod = event.requestContext?.http?.method || event.httpMethod || 'GET';
+    // Normalización de ruta y método
+    let rawPath = event.rawPath || event.path || '';
+    const path = rawPath.toLowerCase().replace(/\/+$/, '');
+    const httpMethod = (event.requestContext?.http?.method || event.httpMethod || 'GET').toUpperCase();
+    
     let body = {};
 
     if (event.body) {
         try {
             body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
         } catch (e) {
-            // Manejo de multipart/form-data u otros formatos
             body = event.body;
         }
     }
@@ -55,8 +56,8 @@ exports.handler = async (event) => {
             );
         `);
 
-        // 1. Ruta: Subida de archivos / imágenes
-        if (path.includes('upload') && httpMethod === 'POST') {
+        // 1. Ruta: Subida de archivos / imágenes (captura cualquier path con upload)
+        if (path.includes('upload')) {
             const fileUrl = `https://dinovo.space/uploads/img_${Date.now()}.jpg`;
             
             return {
@@ -69,8 +70,8 @@ exports.handler = async (event) => {
             };
         }
 
-        // 2. Ruta: POST /api/usuarios o /usuarios (Registro)
-        if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && !path.includes('upload') && httpMethod === 'POST') {
+        // 2. Ruta: POST /usuarios o /api/usuarios (Registro)
+        if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && httpMethod === 'POST') {
             const { nombre, email, password } = body;
             const hashedPassword = await bcrypt.hash(password || '123456', 10);
             
@@ -85,7 +86,7 @@ exports.handler = async (event) => {
             };
         }
 
-        // 3. Ruta: POST /api/login o /login (Autenticación JWT)
+        // 3. Ruta: POST /login o /api/login
         if ((path.endsWith('/login') || path.endsWith('/api/login')) && httpMethod === 'POST') {
             const { email, password } = body;
             const res = await db.query('SELECT * FROM usuarios WHERE email = $1', [email]);
@@ -119,8 +120,8 @@ exports.handler = async (event) => {
             };
         }
 
-        // 4. Ruta: GET /api/usuarios o /usuarios (Obtener lista)
-        if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && !path.includes('upload') && httpMethod === 'GET') {
+        // 4. Ruta: GET /usuarios o /api/usuarios (Obtener lista)
+        if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && httpMethod === 'GET') {
             const res = await db.query('SELECT id, nombre, email, created_at FROM usuarios');
             return {
                 statusCode: 200,
@@ -129,7 +130,7 @@ exports.handler = async (event) => {
             };
         }
 
-        // Respuesta por defecto
+        // Respuesta por defecto si no coincide ninguna ruta
         return {
             statusCode: 200,
             headers,
