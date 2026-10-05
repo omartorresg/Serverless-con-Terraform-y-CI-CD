@@ -55,9 +55,8 @@ exports.handler = async (event) => {
             );
         `);
 
-        // 1. Ruta: POST /api/usuarios/upload o /usuarios/upload (Subida de archivos)
-        if ((path.endsWith('/usuarios/upload') || path.endsWith('/api/usuarios/upload')) && httpMethod === 'POST') {
-            // Simulamos la respuesta exitosa devolviendo una URL formateada de almacenamiento
+        // 1. Ruta: Subida de archivos / imágenes
+        if (path.includes('upload') && httpMethod === 'POST') {
             const fileUrl = `https://dinovo.space/uploads/img_${Date.now()}.jpg`;
             
             return {
@@ -71,7 +70,7 @@ exports.handler = async (event) => {
         }
 
         // 2. Ruta: POST /api/usuarios o /usuarios (Registro)
-        if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && httpMethod === 'POST') {
+        if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && !path.includes('upload') && httpMethod === 'POST') {
             const { nombre, email, password } = body;
             const hashedPassword = await bcrypt.hash(password || '123456', 10);
             
@@ -121,7 +120,7 @@ exports.handler = async (event) => {
         }
 
         // 4. Ruta: GET /api/usuarios o /usuarios (Obtener lista)
-        if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && httpMethod === 'GET') {
+        if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && !path.includes('upload') && httpMethod === 'GET') {
             const res = await db.query('SELECT id, nombre, email, created_at FROM usuarios');
             return {
                 statusCode: 200,
