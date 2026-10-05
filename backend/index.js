@@ -139,10 +139,15 @@ exports.handler = async (event) => {
 
     } catch (err) {
         console.error("Error en la ejecución:", err);
+        // Respuesta por defecto si no coincide ninguna ruta
         return {
-            statusCode: 500,
+            statusCode: 200,
             headers,
-            body: JSON.stringify({ error: err.message })
+            body: JSON.stringify({ 
+                message: "API Serverless V2 - Pruebas de actualización", 
+                path, 
+                httpMethod 
+            })
         };
     }
 };
