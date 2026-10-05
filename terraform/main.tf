@@ -25,14 +25,21 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# Crear el archivo backend.zip automáticamente desde la carpeta backend
+data "archive_file" "backend_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../backend"
+  output_path = "${path.module}/../backend.zip"
+}
+
 # 2. Función Lambda
 resource "aws_lambda_function" "api_backend" {
-  filename         = "../backend.zip"
+  filename         = data.archive_file.backend_zip.output_path
   function_name    = "mobile_backend_api_${random_id.role_suffix.hex}"
   role             = aws_iam_role.lambda_exec_role.arn
   handler          = "index.handler"
   runtime          = "nodejs20.x"
-  source_code_hash = filebase64sha256("../backend.zip")
+  source_code_hash = data.archive_file.backend_zip.output_base64sha256
 
   environment {
     variables = {
