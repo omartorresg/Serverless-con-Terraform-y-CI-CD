@@ -1,8 +1,10 @@
 const { Client } = require('pg');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
 
 let client;
+const snsClient = new SNSClient({ region: process.env.AWS_REGION || 'us-east-1' });
 
 const getDbClient = async () => {
     if (!client || client._ending) {
@@ -16,13 +18,11 @@ const getDbClient = async () => {
 };
 
 exports.handler = async (event) => {
-    // Normalización de ruta y método
     let rawPath = event.rawPath || event.path || '';
     const path = rawPath.toLowerCase().replace(/\/+$/, '');
     const httpMethod = (event.requestContext?.http?.method || event.httpMethod || 'GET').toUpperCase();
     
     let body = {};
-
     if (event.body) {
         try {
             body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
@@ -45,7 +45,6 @@ exports.handler = async (event) => {
     try {
         const db = await getDbClient();
 
-        // Crear la tabla si no existe
         await db.query(`
             CREATE TABLE IF NOT EXISTS usuarios (
                 id SERIAL PRIMARY KEY,
@@ -56,25 +55,48 @@ exports.handler = async (event) => {
             );
         `);
 
-        // 1. Ruta: Subida de archivos / imágenes (captura cualquier path con upload)
-        if (path.includes('upload')) {
-            const fileUrl = `https://dinovo.space/uploads/img_${Date.now()}.jpg`;
-            
+        // NUEVO ENDPOINT: Publicar mensaje en SNS
+        if (path.includes('notifications/send') && httpMethod === 'POST') {
+            const { email, subject, message } = body;
+
+            if (!email || !subject || !message) {
+                return {
+                    statusCode: 400,
+                    headers,
+                    body: JSON.stringify({ error: "Faltan campos obligatorios" })
+                };
+            }
+
+            const params = {
+                TopicArn: process.env.SNS_TOPIC_ARN,
+                Message: JSON.stringify({ email, subject, message }),
+                Subject: subject
+            };
+
+            const command = new PublishCommand(params);
+            await snsClient.send(command);
+
             return {
                 statusCode: 200,
                 headers,
-                body: JSON.stringify({
-                    message: "Archivo procesado exitosamente",
-                    url: fileUrl
-                })
+                body: JSON.stringify({ message: "Mensaje enviado correctamente" })
             };
         }
 
-        // 2. Ruta: POST /usuarios o /api/usuarios (Registro)
+        // Subida de archivos
+        if (path.includes('upload')) {
+            const fileUrl = `https://dinovo.space/uploads/img_${Date.now()}.jpg`;
+            return {
+                statusCode: 200,
+                headers,
+                body: JSON.stringify({ message: "Archivo procesado exitosamente", url: fileUrl })
+            };
+        }
+
+        // Registro de usuarios
         if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && httpMethod === 'POST') {
             const { nombre, email, password } = body;
             const hashedPassword = await bcrypt.hash(password || '123456', 10);
-            
             const res = await db.query(
                 'INSERT INTO usuarios (nombre, email, password) VALUES ($1, $2, $3) RETURNING id, nombre, email',
                 [nombre, email, hashedPassword]
@@ -86,33 +108,19 @@ exports.handler = async (event) => {
             };
         }
 
-        // 3. Ruta: POST /login o /api/login
+        // Login
         if ((path.endsWith('/login') || path.endsWith('/api/login')) && httpMethod === 'POST') {
             const { email, password } = body;
             const res = await db.query('SELECT * FROM usuarios WHERE email = $1', [email]);
-            
             if (res.rows.length === 0) {
                 return { statusCode: 401, headers, body: JSON.stringify({ message: "Credenciales inválidas" }) };
             }
-
             const user = res.rows[0];
-            let valid = false;
-            try {
-                valid = await bcrypt.compare(password, user.password || '');
-            } catch (err) {
-                valid = false;
-            }
-
+            const valid = await bcrypt.compare(password, user.password || '');
             if (!valid) {
                 return { statusCode: 401, headers, body: JSON.stringify({ message: "Credenciales inválidas" }) };
             }
-
-            const token = jwt.sign(
-                { id: user.id, email: user.email },
-                process.env.JWT_SECRET || 'secret',
-                { expiresIn: '24h' }
-            );
-
+            const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '24h' });
             return {
                 statusCode: 200,
                 headers,
@@ -120,34 +128,24 @@ exports.handler = async (event) => {
             };
         }
 
-        // 4. Ruta: GET /usuarios o /api/usuarios (Obtener lista)
+        // Obtener lista de usuarios
         if ((path.endsWith('/usuarios') || path.endsWith('/api/usuarios')) && httpMethod === 'GET') {
             const res = await db.query('SELECT id, nombre, email, created_at FROM usuarios');
-            return {
-                statusCode: 200,
-                headers,
-                body: JSON.stringify(res.rows)
-            };
+            return { statusCode: 200, headers, body: JSON.stringify(res.rows) };
         }
 
-        // Respuesta por defecto si no coincide ninguna ruta
         return {
             statusCode: 200,
             headers,
-            body: JSON.stringify({ message: "API Serverless activa en AWS Lambda con Neon DB", path, httpMethod })
+            body: JSON.stringify({ message: "API Serverless activa con SNS/SQS", path, httpMethod })
         };
 
     } catch (err) {
-        console.error("Error en la ejecución:", err);
-        // Respuesta por defecto si no coincide ninguna ruta
+        console.error("Error:", err);
         return {
-            statusCode: 200,
+            statusCode: 500,
             headers,
-            body: JSON.stringify({ 
-                message: "API Serverless V2 - Pruebas de actualización", 
-                path, 
-                httpMethod 
-            })
+            body: JSON.stringify({ error: err.message })
         };
     }
 };
